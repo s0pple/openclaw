@@ -832,7 +832,29 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
       yield { type: "text", text: secretChunk };
     }
     const wrapped = wrapStreamFnWithDiagnosticModelCallEvents(
-      (() => stream()) as unknown as StreamFn,
+      ((_model, _context, options) => {
+        options?.onResponse?.(
+          {
+            status: 200,
+            headers: {
+              "x-oneapi-request-id": "oneapi-request-1",
+              "x-oneapi-correlation-id": "run-1",
+              "x-oneapi-routing-schema-version": "1",
+              "x-oneapi-requested-model": "auto-v0",
+              "x-oneapi-resolved-model": "meta-llama/test",
+              "x-oneapi-provider-family": "groq",
+              "x-oneapi-fallback-used": "true",
+              "x-oneapi-fallback-reason": "route_unavailable",
+              "x-oneapi-attempts": "2",
+              "x-oneapi-latency-ms": "17",
+              "x-oneapi-runtime-build-id": "oneapi-build-1",
+              authorization: "Bearer secret-must-not-escape",
+            },
+          },
+          {} as never,
+        );
+        return stream();
+      }) as unknown as StreamFn,
       {
         runId: "run-1",
         sessionKey: "session-key",
@@ -841,6 +863,9 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
         model: "gpt-5.4",
         api: "openai-responses",
         transport: "http",
+        requestedModelId: "oneapi/auto-v0",
+        fallbackActive: true,
+        fallbackReason: "route_unavailable",
         contextTokenBudget: 150_000,
         contextWindowSource: "agentContextTokens",
         contextWindowReferenceTokens: 200_000,
@@ -867,6 +892,9 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
     expect(startedEvent.sessionId).toBe("session-id");
     expect(startedEvent.provider).toBe("openai");
     expect(startedEvent.model).toBe("gpt-5.4");
+    expect(startedEvent.requestedModel).toBe("oneapi/auto-v0");
+    expect(startedEvent.fallbackActive).toBe(true);
+    expect(startedEvent.fallbackReason).toBe("route_unavailable");
     expect(startedEvent.api).toBe("openai-responses");
     expect(startedEvent.transport).toBe("http");
     expect(startedEvent.contextTokenBudget).toBe(150_000);
@@ -885,6 +913,23 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents", () => {
     expect(endedEvent.runId).toBe("run-1");
     expect(endedEvent.callId).toBe("call-hook");
     expect(endedEvent.outcome).toBe("completed");
+    expect(endedEvent.requestedModel).toBe("oneapi/auto-v0");
+    expect(endedEvent.fallbackActive).toBe(true);
+    expect(endedEvent.fallbackReason).toBe("route_unavailable");
+    expect(endedEvent.responseStatus).toBe(200);
+    expect(endedEvent.providerResponseHeaders).toEqual({
+      "x-oneapi-request-id": "oneapi-request-1",
+      "x-oneapi-correlation-id": "run-1",
+      "x-oneapi-routing-schema-version": "1",
+      "x-oneapi-requested-model": "auto-v0",
+      "x-oneapi-resolved-model": "meta-llama/test",
+      "x-oneapi-provider-family": "groq",
+      "x-oneapi-fallback-used": "true",
+      "x-oneapi-fallback-reason": "route_unavailable",
+      "x-oneapi-attempts": "2",
+      "x-oneapi-latency-ms": "17",
+      "x-oneapi-runtime-build-id": "oneapi-build-1",
+    });
     expect(endedEvent.contextTokenBudget).toBe(150_000);
     expect(endedEvent.contextWindowSource).toBe("agentContextTokens");
     expect(endedEvent.contextWindowReferenceTokens).toBe(200_000);
