@@ -472,9 +472,7 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents lifecycle", () => {
       },
     );
 
-    await drain(
-      wrapped({} as never, {} as never, undefined) as unknown as AsyncIterable<unknown>,
-    );
+    await drain(wrapped({} as never, {} as never, undefined) as unknown as AsyncIterable<unknown>);
 
     const captured = requireRecord(capturedOptions[0], "captured OneAPI options");
     const headers = readRecordField(captured, "headers", "OneAPI headers");

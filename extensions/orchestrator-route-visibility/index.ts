@@ -47,7 +47,9 @@ export default definePluginEntry({
         return;
       }
       void lookupOneApiRoutingEvent(api.runtime.config.current(), requestId).then((metadata) => {
-        logRecord(metadata ? store.enrich(record.runId, record.callId, metadata) ?? record : record);
+        logRecord(
+          metadata ? (store.enrich(record.runId, record.callId, metadata) ?? record) : record,
+        );
       });
     });
 

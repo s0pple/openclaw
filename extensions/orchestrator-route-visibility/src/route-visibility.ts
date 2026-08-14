@@ -182,7 +182,9 @@ export function parseOneApiRoutingEvent(payload: unknown): OneApiRouteMetadata |
   }
   const schemaVersion = event.schema_version === 1 ? "1" : undefined;
   const attempts =
-    typeof event.attempts === "number" && Number.isSafeInteger(event.attempts) && event.attempts >= 0
+    typeof event.attempts === "number" &&
+    Number.isSafeInteger(event.attempts) &&
+    event.attempts >= 0
       ? event.attempts
       : Array.isArray(event.attempts)
         ? event.attempts.length
@@ -192,17 +194,29 @@ export function parseOneApiRoutingEvent(payload: unknown): OneApiRouteMetadata |
   return {
     ...(schemaVersion ? { schemaVersion } : {}),
     requestId,
-    ...(safeIdentifier(event.correlation_id) ? { correlationId: safeIdentifier(event.correlation_id) } : {}),
-    ...(safeIdentifier(event.requested_model) ? { requestedModel: safeIdentifier(event.requested_model) } : {}),
-    ...(safeIdentifier(event.resolved_model) ? { resolvedModel: safeIdentifier(event.resolved_model) } : {}),
-    ...(safeIdentifier(event.provider_family) ? { providerFamily: safeIdentifier(event.provider_family) } : {}),
+    ...(safeIdentifier(event.correlation_id)
+      ? { correlationId: safeIdentifier(event.correlation_id) }
+      : {}),
+    ...(safeIdentifier(event.requested_model)
+      ? { requestedModel: safeIdentifier(event.requested_model) }
+      : {}),
+    ...(safeIdentifier(event.resolved_model)
+      ? { resolvedModel: safeIdentifier(event.resolved_model) }
+      : {}),
+    ...(safeIdentifier(event.provider_family)
+      ? { providerFamily: safeIdentifier(event.provider_family) }
+      : {}),
     ...(typeof event.fallback_used === "boolean" ? { fallbackUsed: event.fallback_used } : {}),
     ...(fallbackReason && SAFE_FALLBACK_REASONS.has(fallbackReason) ? { fallbackReason } : {}),
     ...(attempts !== undefined ? { attempts } : {}),
-    ...(typeof event.latency_ms === "number" && Number.isFinite(event.latency_ms) && event.latency_ms >= 0
+    ...(typeof event.latency_ms === "number" &&
+    Number.isFinite(event.latency_ms) &&
+    event.latency_ms >= 0
       ? { latencyMs: event.latency_ms }
       : {}),
-    ...(safeIdentifier(event.runtime_build_id) ? { runtimeBuildId: safeIdentifier(event.runtime_build_id) } : {}),
+    ...(safeIdentifier(event.runtime_build_id)
+      ? { runtimeBuildId: safeIdentifier(event.runtime_build_id) }
+      : {}),
     ...(outcome && SAFE_OUTCOMES.has(outcome) ? { outcome } : {}),
   };
 }
@@ -213,9 +227,7 @@ function mergeOneApiRouteMetadata(
 ): OneApiRouteMetadata {
   return {
     ...current,
-    ...Object.fromEntries(
-      Object.entries(update).filter(([, value]) => value !== undefined),
-    ),
+    ...Object.fromEntries(Object.entries(update).filter(([, value]) => value !== undefined)),
   } as OneApiRouteMetadata;
 }
 
