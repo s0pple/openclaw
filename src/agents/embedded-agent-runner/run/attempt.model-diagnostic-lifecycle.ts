@@ -119,6 +119,8 @@ export type ModelCallObserver = {
 };
 
 const TRACEPARENT_HEADER_NAME = "traceparent";
+const ONEAPI_PROVIDER_ID = "oneapi";
+const ONEAPI_CORRELATION_HEADER_NAME = "X-Request-ID";
 const TIMELINE_ATTRIBUTE_MAX_LENGTH = 256;
 const SAFE_PROVIDER_RESPONSE_HEADER_NAMES = new Set([
   "x-oneapi-request-id",
@@ -441,6 +443,7 @@ function withDiagnosticRequestContext(
   trace: DiagnosticTraceContext,
   observer: ModelCallObserver,
   callId: string,
+  provider: string,
 ): ModelCallStreamOptions {
   const traceparent = formatPropagatedDiagnosticTraceparent(trace);
   const originalOnPayload = options?.onPayload;
@@ -478,10 +481,18 @@ function withDiagnosticRequestContext(
   if (traceparent) {
     headers[TRACEPARENT_HEADER_NAME] = traceparent;
   }
+  const isOneApiProvider = provider.trim().toLowerCase() === ONEAPI_PROVIDER_ID;
+  const hasCallerRequestId = Object.keys(headers).some(
+    (key) => key.toLowerCase() === ONEAPI_CORRELATION_HEADER_NAME.toLowerCase(),
+  );
+  if (isOneApiProvider && !hasCallerRequestId) {
+    headers[ONEAPI_CORRELATION_HEADER_NAME] = callId;
+  }
+  const hasHeaders = options?.headers !== undefined || Boolean(traceparent) || isOneApiProvider;
   return {
     ...options,
     requestId: callId,
-    ...((options?.headers || traceparent) && { headers }),
+    ...(hasHeaders && { headers }),
     onPayload,
     onResponse,
   };
@@ -499,7 +510,13 @@ export function createModelLifecycle(params: {
   emitModelCallStarted(eventBase, observer.modelContent, params.ctx.suppressPluginHooks === true);
   params.ctx.onStarted?.();
   const startedAt = Date.now();
-  const propagatedOptions = withDiagnosticRequestContext(params.options, trace, observer, callId);
+  const propagatedOptions = withDiagnosticRequestContext(
+    params.options,
+    trace,
+    observer,
+    callId,
+    params.ctx.provider,
+  );
   return {
     eventBase,
     observer,

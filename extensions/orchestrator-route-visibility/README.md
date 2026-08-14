@@ -8,10 +8,16 @@ OpenClaw orchestrator. It keeps these values separate:
   internal fallback, attempts, and runtime build identity.
 
 The extension consumes only the public OneAPI response metadata exposed through
-the generic `model_call_ended` hook. It does not inspect OneAPI logs, select a
-provider, retry a request, or provide a model fallback. Provider response
-headers are filtered by the OpenClaw core to a non-secret allowlist before the
-plugin sees them.
+the generic `model_call_ended` hook and, when a streamed response exposes only
+the request headers, the existing authenticated
+`/admin/routing-events/:oneapi_request_id` diagnostic endpoint. It never reads
+OneAPI logs or its database. Provider response headers are filtered by the
+OpenClaw core to a non-secret allowlist before the plugin sees them.
+
+The routing-event lookup is restricted to a configured loopback OneAPI endpoint,
+uses the existing gateway credential without logging it, and only retains the
+allowlisted requested/resolved/fallback/runtime fields. It does not select a
+provider, retry a request, or provide a model fallback.
 
 `/route-status` is an authenticated diagnostic command. Values labelled
 “last” describe the most recent observed request and are not a promise about

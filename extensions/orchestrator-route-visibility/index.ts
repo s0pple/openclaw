@@ -1,5 +1,9 @@
 import { definePluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
-import { OrchestratorRouteStore, formatRouteStatus } from "./src/route-visibility.js";
+import {
+  formatRouteStatus,
+  lookupOneApiRoutingEvent,
+  OrchestratorRouteStore,
+} from "./src/route-visibility.js";
 
 export default definePluginEntry({
   id: "orchestrator-route-visibility",
@@ -17,24 +21,36 @@ export default definePluginEntry({
       if (!record) {
         return;
       }
-      api.logger.info?.(
-        `[orchestrator-route] ${JSON.stringify({
-          role: record.role,
-          sequence: record.sequence,
-          runId: record.runId,
-          callId: record.callId,
-          sessionKey: record.sessionKey,
-          selectedCandidate: record.selectedCandidate,
-          requestedModel: record.requestedModel,
-          openclawFallbackUsed: record.openclawFallbackUsed,
-          openclawFallbackReason: record.openclawFallbackReason,
-          oneapi: record.oneapi,
-          responseModel: record.responseModel,
-          outcome: record.outcome,
-          responseStatus: record.responseStatus,
-          durationMs: record.durationMs,
-        })}`,
-      );
+      const logRecord = (observed: typeof record) => {
+        api.logger.info?.(
+          `[orchestrator-route] ${JSON.stringify({
+            role: observed.role,
+            sequence: observed.sequence,
+            runId: observed.runId,
+            callId: observed.callId,
+            sessionKey: observed.sessionKey,
+            selectedCandidate: observed.selectedCandidate,
+            requestedModel: observed.requestedModel,
+            openclawFallbackUsed: observed.openclawFallbackUsed,
+            openclawFallbackReason: observed.openclawFallbackReason,
+            oneapi: observed.oneapi,
+            responseModel: observed.responseModel,
+            outcome: observed.outcome,
+            responseStatus: observed.responseStatus,
+            durationMs: observed.durationMs,
+          })}`,
+        );
+      };
+      const requestId = record.oneapi.requestId;
+      if (!requestId) {
+        logRecord(record);
+        return;
+      }
+      void lookupOneApiRoutingEvent(api.runtime.config.current(), requestId).then((metadata) => {
+        logRecord(
+          metadata ? (store.enrich(record.runId, record.callId, metadata) ?? record) : record,
+        );
+      });
     });
 
     api.registerCommand({
