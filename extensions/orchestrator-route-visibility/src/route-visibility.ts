@@ -2,6 +2,10 @@ import type {
   PluginHookModelCallEndedEvent,
   PluginHookModelCallStartedEvent,
 } from "openclaw/plugin-sdk/types";
+import {
+  fetchWithSsrFGuard,
+  ssrfPolicyFromHttpBaseUrlAllowedOrigin,
+} from "openclaw/plugin-sdk/ssrf-runtime";
 
 const MAX_TRACKED_CALLS = 256;
 const ROUTING_LOOKUP_TIMEOUT_MS = 1500;
@@ -242,19 +246,25 @@ export async function lookupOneApiRoutingEvent(
 ): Promise<OneApiRouteMetadata | undefined> {
   const safeRequestId = safeIdentifier(requestId);
   const lookup = oneApiLookupConfig(config);
-  if (!safeRequestId || !lookup || typeof fetch !== "function") {
+  if (!safeRequestId || !lookup) {
     return undefined;
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ROUTING_LOOKUP_TIMEOUT_MS);
+  const policy = ssrfPolicyFromHttpBaseUrlAllowedOrigin(lookup.baseUrl);
+  if (!policy) {
+    return undefined;
+  }
+  let guarded: Awaited<ReturnType<typeof fetchWithSsrFGuard>> | undefined;
   try {
-    const response = await fetch(
-      `${lookup.baseUrl}/admin/routing-events/${encodeURIComponent(safeRequestId)}`,
-      {
+    guarded = await fetchWithSsrFGuard({
+      url: `${lookup.baseUrl}/admin/routing-events/${encodeURIComponent(safeRequestId)}`,
+      init: {
         headers: { Authorization: `Bearer ${lookup.apiKey}` },
-        signal: controller.signal,
       },
-    );
+      auditContext: "orchestrator-route-oneapi-lookup",
+      policy,
+      timeoutMs: ROUTING_LOOKUP_TIMEOUT_MS,
+    });
+    const { response } = guarded;
     if (!response.ok) {
       return undefined;
     }
@@ -270,7 +280,7 @@ export async function lookupOneApiRoutingEvent(
   } catch {
     return undefined;
   } finally {
-    clearTimeout(timeout);
+    await guarded?.release().catch(() => undefined);
   }
 }
 
