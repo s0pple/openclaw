@@ -38,6 +38,9 @@ export type ModelCallDiagnosticContext = {
   sessionId?: string;
   provider: string;
   model: string;
+  requestedModelId?: string | null;
+  fallbackActive?: boolean;
+  fallbackReason?: string | null;
   api?: string;
   transport?: string;
   contextTokenBudget?: number;
@@ -53,7 +56,11 @@ export type ModelCallDiagnosticContext = {
 export type ModelCallEventBase = Omit<
   Extract<DiagnosticEventInput, { type: "model.call.started" }>,
   "type"
->;
+> & {
+  requestedModel?: string;
+  fallbackActive?: boolean;
+  fallbackReason?: string;
+};
 type ModelCallErrorFields = Pick<
   Extract<DiagnosticEventInput, { type: "model.call.error" }>,
   "errorCategory" | "failureKind" | "memory" | "upstreamRequestIdHash"
@@ -62,6 +69,9 @@ type ModelCallEndedHookFields = Pick<
   PluginHookModelCallEndedEvent,
   | "durationMs"
   | "outcome"
+  | "responseStatus"
+  | "responseModel"
+  | "providerResponseHeaders"
   | "errorCategory"
   | "requestPayloadBytes"
   | "responseStreamBytes"
@@ -82,6 +92,8 @@ export type ModelCallUsage = NonNullable<
 export type ModelCallObservationState = {
   requestPayloadBytes?: number;
   responseStatus?: number;
+  responseModel?: string;
+  providerResponseHeaders?: Readonly<Record<string, string>>;
   responseStreamBytes: number;
   timeToFirstByteMs?: number;
   modelContent?: DiagnosticModelCallContent;
@@ -108,7 +120,53 @@ export type ModelCallObserver = {
 
 const TRACEPARENT_HEADER_NAME = "traceparent";
 const TIMELINE_ATTRIBUTE_MAX_LENGTH = 256;
+const SAFE_PROVIDER_RESPONSE_HEADER_NAMES = new Set([
+  "x-oneapi-request-id",
+  "x-oneapi-correlation-id",
+  "x-oneapi-routing-schema-version",
+  "x-oneapi-requested-model",
+  "x-oneapi-resolved-model",
+  "x-oneapi-provider-family",
+  "x-oneapi-fallback-used",
+  "x-oneapi-fallback-reason",
+  "x-oneapi-attempts",
+  "x-oneapi-latency-ms",
+  "x-oneapi-runtime-build-id",
+  "x-oneapi-outcome",
+]);
+const SAFE_PROVIDER_RESPONSE_HEADER_VALUE_MAX_LENGTH = 256;
 type ModelCallStreamOptions = Parameters<StreamFn>[2];
+
+function safeProviderResponseHeaders(
+  headers: Record<string, string> | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (!headers || typeof headers !== "object") {
+    return undefined;
+  }
+  const safe: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const normalizedName = name.trim().toLowerCase();
+    if (!SAFE_PROVIDER_RESPONSE_HEADER_NAMES.has(normalizedName)) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      continue;
+    }
+    const normalizedValue = value
+      .replaceAll("\r", "")
+      .replaceAll("\n", "")
+      .replaceAll("\u0000", "")
+      .trim();
+    if (!normalizedValue) {
+      continue;
+    }
+    safe[normalizedName] = truncateUtf16Safe(
+      normalizedValue,
+      SAFE_PROVIDER_RESPONSE_HEADER_VALUE_MAX_LENGTH,
+    );
+  }
+  return Object.keys(safe).length > 0 ? Object.freeze(safe) : undefined;
+}
 
 function baseModelCallEvent(
   ctx: ModelCallDiagnosticContext,
@@ -123,6 +181,9 @@ function baseModelCallEvent(
     ...(ctx.sessionId && { sessionId: ctx.sessionId }),
     provider: ctx.provider,
     model: ctx.model,
+    ...(ctx.requestedModelId ? { requestedModel: ctx.requestedModelId } : {}),
+    ...(ctx.fallbackActive !== undefined ? { fallbackActive: ctx.fallbackActive } : {}),
+    ...(ctx.fallbackReason ? { fallbackReason: ctx.fallbackReason } : {}),
     ...(ctx.api && { api: ctx.api }),
     ...(ctx.transport && { transport: ctx.transport }),
     observationUnit: "request",
@@ -207,6 +268,9 @@ function modelCallHookEventBase(eventBase: ModelCallEventBase): PluginHookModelC
     ...(eventBase.sessionId ? { sessionId: eventBase.sessionId } : {}),
     provider: eventBase.provider,
     model: eventBase.model,
+    ...(eventBase.requestedModel ? { requestedModel: eventBase.requestedModel } : {}),
+    ...(eventBase.fallbackActive !== undefined ? { fallbackActive: eventBase.fallbackActive } : {}),
+    ...(eventBase.fallbackReason ? { fallbackReason: eventBase.fallbackReason } : {}),
     ...(eventBase.api ? { api: eventBase.api } : {}),
     ...(eventBase.transport ? { transport: eventBase.transport } : {}),
     ...(eventBase.contextTokenBudget ? { contextTokenBudget: eventBase.contextTokenBudget } : {}),
@@ -317,6 +381,13 @@ function emitModelCallCompleted(
     dispatchModelCallEndedHook(eventBase, {
       durationMs,
       outcome: "completed",
+      ...(observer.state.responseStatus !== undefined
+        ? { responseStatus: observer.state.responseStatus }
+        : {}),
+      ...(observer.state.responseModel ? { responseModel: observer.state.responseModel } : {}),
+      ...(observer.state.providerResponseHeaders
+        ? { providerResponseHeaders: observer.state.providerResponseHeaders }
+        : {}),
       ...sizeTimingFields,
     });
   }
@@ -354,6 +425,11 @@ function emitModelCallError(
     dispatchModelCallEndedHook(eventBase, {
       durationMs,
       outcome: "error",
+      ...(responseStatus !== undefined ? { responseStatus } : {}),
+      ...(observer.state.responseModel ? { responseModel: observer.state.responseModel } : {}),
+      ...(observer.state.providerResponseHeaders
+        ? { providerResponseHeaders: observer.state.providerResponseHeaders }
+        : {}),
       ...sizeTimingFields,
       ...fields,
     });
@@ -388,6 +464,7 @@ function withDiagnosticRequestContext(
     // Retrying providers can expose several responses; the terminal request status
     // is the latest response observed before the model call completes or fails.
     observer.state.responseStatus = response.status;
+    observer.state.providerResponseHeaders = safeProviderResponseHeaders(response.headers);
     return originalOnResponse?.(response, model);
   };
 

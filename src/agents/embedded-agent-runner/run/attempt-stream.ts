@@ -373,6 +373,9 @@ export function installEmbeddedAttemptStreamGuards(input: {
     ...(attempt.sessionId && { sessionId: attempt.sessionId }),
     provider: attempt.provider,
     model: attempt.modelId,
+    ...(attempt.requestedModelId ? { requestedModelId: attempt.requestedModelId } : {}),
+    ...(attempt.fallbackActive !== undefined ? { fallbackActive: attempt.fallbackActive } : {}),
+    ...(attempt.fallbackReason ? { fallbackReason: attempt.fallbackReason } : {}),
     api: attempt.model.api,
     transport: input.effectiveAgentTransport,
     ...(attempt.contextWindowInfo?.tokens

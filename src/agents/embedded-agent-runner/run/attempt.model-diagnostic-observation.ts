@@ -189,6 +189,12 @@ function observeOutputMessageContent(state: ModelCallObservationState, chunk: un
   // model.call.error event and its OTel span already expose.
   if (message !== undefined) {
     observeModelCallUsage(state, message);
+    if (isRecord(message) && typeof message.responseModel === "string") {
+      const responseModel = message.responseModel.trim();
+      if (responseModel) {
+        state.responseModel = responseModel;
+      }
+    }
     if (state.contentCapture?.outputMessages) {
       state.outputMessages = [cloneDiagnosticContentValue(message)];
     }
@@ -202,6 +208,12 @@ function observeResultMessageContent(
 ): void {
   state.timeToFirstByteMs ??= Math.max(0, Date.now() - startedAt);
   observeModelCallUsage(state, result);
+  if (isRecord(result) && typeof result.responseModel === "string") {
+    const responseModel = result.responseModel.trim();
+    if (responseModel) {
+      state.responseModel = responseModel;
+    }
+  }
   if (state.contentCapture?.outputMessages && state.outputMessages === undefined) {
     state.outputMessages = [cloneDiagnosticContentValue(result)];
   }

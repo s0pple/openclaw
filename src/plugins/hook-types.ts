@@ -371,6 +371,12 @@ type PluginHookModelCallBaseEvent = {
   sessionId?: string;
   provider: string;
   model: string;
+  /** The model selected before any runtime fallback for this attempt. */
+  requestedModel?: string;
+  /** True when OpenClaw selected this attempt after a consumer-side fallback. */
+  fallbackActive?: boolean;
+  /** Safe, non-secret reason for an OpenClaw consumer-side fallback. */
+  fallbackReason?: string;
   api?: string;
   transport?: string;
   /** Resolved effective context-token budget after model/config/agent caps. */
@@ -386,6 +392,12 @@ export type PluginHookModelCallStartedEvent = PluginHookModelCallBaseEvent;
 export type PluginHookModelCallEndedEvent = PluginHookModelCallBaseEvent & {
   durationMs: number;
   outcome: "completed" | "error";
+  /** HTTP status observed from the provider transport, when available. */
+  responseStatus?: number;
+  /** Concrete model reported by the provider response, when available. */
+  responseModel?: string;
+  /** Safe allowlisted provider response headers; never raw transport headers. */
+  providerResponseHeaders?: Readonly<Record<string, string>>;
   errorCategory?: string;
   failureKind?: "aborted" | "connection_closed" | "connection_reset" | "terminated" | "timeout";
   requestPayloadBytes?: number;

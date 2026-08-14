@@ -504,7 +504,24 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents lifecycle", () => {
       yield { type: "text", text: secretChunk };
     }
     const wrapped = wrapStreamFnWithDiagnosticModelCallEvents(
-      (() => stream()) as unknown as StreamFn,
+      ((
+        model: Parameters<StreamFn>[0],
+        _context: Parameters<StreamFn>[1],
+        options: Parameters<StreamFn>[2],
+      ) => {
+        void options?.onResponse?.(
+          {
+            status: 200,
+            headers: {
+              "x-oneapi-request-id": "oneapi-call-hook",
+              "x-oneapi-resolved-model": "meta-llama/test",
+              authorization: "Bearer should-not-reach-hook",
+            },
+          },
+          model,
+        );
+        return stream();
+      }) as unknown as StreamFn,
       {
         runId: "run-1",
         sessionKey: "session-key",
@@ -516,6 +533,9 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents lifecycle", () => {
         contextTokenBudget: 150_000,
         contextWindowSource: "agentContextTokens",
         contextWindowReferenceTokens: 200_000,
+        requestedModelId: "oneapi/auto-v0",
+        fallbackActive: true,
+        fallbackReason: "primary_unavailable",
         trace: createDiagnosticTraceContext(),
         nextCallId: () => "call-hook",
       },
@@ -557,6 +577,14 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents lifecycle", () => {
     expect(endedEvent.runId).toBe("run-1");
     expect(endedEvent.callId).toBe("call-hook");
     expect(endedEvent.outcome).toBe("completed");
+    expect(endedEvent.requestedModel).toBe("oneapi/auto-v0");
+    expect(endedEvent.fallbackActive).toBe(true);
+    expect(endedEvent.fallbackReason).toBe("primary_unavailable");
+    expect(endedEvent.responseStatus).toBe(200);
+    expect(endedEvent.providerResponseHeaders).toEqual({
+      "x-oneapi-request-id": "oneapi-call-hook",
+      "x-oneapi-resolved-model": "meta-llama/test",
+    });
     expect(endedEvent.contextTokenBudget).toBe(150_000);
     expect(endedEvent.contextWindowSource).toBe("agentContextTokens");
     expect(endedEvent.contextWindowReferenceTokens).toBe(200_000);
