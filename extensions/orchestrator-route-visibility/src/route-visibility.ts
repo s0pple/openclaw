@@ -1,11 +1,11 @@
-import type {
-  PluginHookModelCallEndedEvent,
-  PluginHookModelCallStartedEvent,
-} from "openclaw/plugin-sdk/types";
 import {
   fetchWithSsrFGuard,
   ssrfPolicyFromHttpBaseUrlAllowedOrigin,
 } from "openclaw/plugin-sdk/ssrf-runtime";
+import type {
+  PluginHookModelCallEndedEvent,
+  PluginHookModelCallStartedEvent,
+} from "openclaw/plugin-sdk/types";
 
 const MAX_TRACKED_CALLS = 256;
 const ROUTING_LOOKUP_TIMEOUT_MS = 1500;
