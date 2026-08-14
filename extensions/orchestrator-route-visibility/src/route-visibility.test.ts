@@ -8,6 +8,7 @@ import {
   buildOrchestratorRouteRecord,
   formatRouteStatus,
   parseOneApiRouteMetadata,
+  parseOneApiRoutingEvent,
 } from "./route-visibility.js";
 
 function started(overrides: Partial<PluginHookModelCallStartedEvent> = {}) {
@@ -98,9 +99,47 @@ describe("orchestrator route visibility", () => {
     expect(store.trace("run-1").map((record) => record.callId)).toEqual(["call-1", "call-2"]);
   });
 
+  it("consumes only safe fields from the existing routing-event lookup", () => {
+    expect(
+      parseOneApiRoutingEvent({
+        schema_version: 1,
+        oneapi_request_id: "oneapi-lookup-1",
+        correlation_id: "run-1",
+        requested_model: "auto-v0",
+        resolved_model: "deepseek-v4-flash-free",
+        provider_family: "opencode_zen",
+        fallback_used: true,
+        fallback_reason: "upstream_error",
+        attempts: 2,
+        latency_ms: 123,
+        runtime_build_id: "oneapi-build-1",
+        outcome: "success",
+        authorization: "Bearer must-not-appear",
+      }),
+    ).toEqual({
+      schemaVersion: "1",
+      requestId: "oneapi-lookup-1",
+      correlationId: "run-1",
+      requestedModel: "auto-v0",
+      resolvedModel: "deepseek-v4-flash-free",
+      providerFamily: "opencode_zen",
+      fallbackUsed: true,
+      fallbackReason: "upstream_error",
+      attempts: 2,
+      latencyMs: 123,
+      runtimeBuildId: "oneapi-build-1",
+      outcome: "success",
+    });
+  });
+
   it("formats last resolved route as historical diagnostic state", () => {
     const text = formatRouteStatus({
-      config: { agents: { defaults: { model: { primary: "oneapi/auto-v0" } } } },
+      config: {
+        agents: {
+          defaults: { model: { primary: "oneapi/auto-v0" } },
+          entries: { "telegram-router": { model: { primary: "oneapi/fast" } } },
+        },
+      },
       agentId: "telegram-router",
       sessionKey: "agent:telegram-router:telegram:direct:1",
       latest: buildOrchestratorRouteRecord({
@@ -109,6 +148,7 @@ describe("orchestrator route visibility", () => {
       }),
     });
     expect(text).toContain("configured global intent: oneapi/auto-v0");
+    expect(text).toContain("agent primary (telegram-router): oneapi/fast");
     expect(text).toContain("last OneAPI resolved model: meta-llama/test");
     expect(text).not.toContain("Bearer");
     expect(text).not.toContain("should-never-appear");

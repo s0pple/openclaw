@@ -449,6 +449,38 @@ describe("wrapStreamFnWithDiagnosticModelCallEvents lifecycle", () => {
     expect(capturedOptions[0]?.headers).toEqual({ "X-Custom": "kept" });
   });
 
+  it("propagates the model-call correlation ID to OneAPI only", async () => {
+    async function* stream() {
+      yield { type: "text", text: "ok" };
+    }
+    const capturedOptions: Array<Parameters<StreamFn>[2]> = [];
+    const wrapped = wrapStreamFnWithDiagnosticModelCallEvents(
+      ((
+        _model: Parameters<StreamFn>[0],
+        _context: Parameters<StreamFn>[1],
+        options: Parameters<StreamFn>[2],
+      ) => {
+        capturedOptions.push(options);
+        return stream();
+      }) as unknown as StreamFn,
+      {
+        runId: "run-oneapi-correlation",
+        provider: "oneapi",
+        model: "auto-v0",
+        trace: createDiagnosticTraceContext(),
+        nextCallId: () => "call-oneapi-correlation",
+      },
+    );
+
+    await drain(
+      wrapped({} as never, {} as never, undefined) as unknown as AsyncIterable<unknown>,
+    );
+
+    const captured = requireRecord(capturedOptions[0], "captured OneAPI options");
+    const headers = readRecordField(captured, "headers", "OneAPI headers");
+    expect(headers["X-Request-ID"]).toBe("call-oneapi-correlation");
+  });
+
   it("adds failure kind and memory diagnostics for terminated model calls", async () => {
     const stream = {
       [Symbol.asyncIterator]() {

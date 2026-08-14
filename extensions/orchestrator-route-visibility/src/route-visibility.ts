@@ -4,6 +4,33 @@ import type {
 } from "openclaw/plugin-sdk/types";
 
 const MAX_TRACKED_CALLS = 256;
+const ROUTING_LOOKUP_TIMEOUT_MS = 1500;
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const SAFE_FALLBACK_REASONS = new Set([
+  "no_active_keys",
+  "rate_limited",
+  "route_unavailable",
+  "provider_unavailable",
+  "upstream_error",
+  "timeout",
+  "policy_fallback",
+]);
+const SAFE_OUTCOMES = new Set([
+  "success",
+  "no_active_keys",
+  "rate_limited",
+  "provider_unavailable",
+  "timeout",
+  "upstream_error",
+  "client_disconnected",
+  "invalid_model",
+  "all_routes_exhausted",
+  "auth_failed",
+  "invalid_request",
+  "invalid_policy",
+  "route_unavailable",
+  "internal_error",
+]);
 
 export type OneApiRouteMetadata = {
   schemaVersion?: string;
@@ -68,6 +95,23 @@ function nonEmpty(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function safeIdentifier(value: unknown): string | undefined {
+  const text = nonEmpty(value);
+  if (!text || text.length > 160 || text.includes("://")) {
+    return undefined;
+  }
+  if (/authorization|credential|secret|token/i.test(text)) {
+    return undefined;
+  }
+  return /^[A-Za-z0-9._:/@+~-]+$/u.test(text) ? text : undefined;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function finiteInteger(value: string | undefined): number | undefined {
   if (!value || !/^\d+$/u.test(value)) {
     return undefined;
@@ -119,6 +163,115 @@ export function parseOneApiRouteMetadata(
     ...(read("runtimeBuildId") ? { runtimeBuildId: read("runtimeBuildId") } : {}),
     ...(read("outcome") ? { outcome: read("outcome") } : {}),
   };
+}
+
+/** Parse the existing authenticated OneAPI routing-event response without trusting extra fields. */
+export function parseOneApiRoutingEvent(payload: unknown): OneApiRouteMetadata | undefined {
+  const root = record(payload);
+  const event = record(root?.event) ?? root;
+  if (!event) {
+    return undefined;
+  }
+  const requestId = safeIdentifier(event.oneapi_request_id);
+  if (!requestId) {
+    return undefined;
+  }
+  const schemaVersion = event.schema_version === 1 ? "1" : undefined;
+  const attempts =
+    typeof event.attempts === "number" && Number.isSafeInteger(event.attempts) && event.attempts >= 0
+      ? event.attempts
+      : Array.isArray(event.attempts)
+        ? event.attempts.length
+        : undefined;
+  const fallbackReason = safeIdentifier(event.fallback_reason);
+  const outcome = safeIdentifier(event.outcome);
+  return {
+    ...(schemaVersion ? { schemaVersion } : {}),
+    requestId,
+    ...(safeIdentifier(event.correlation_id) ? { correlationId: safeIdentifier(event.correlation_id) } : {}),
+    ...(safeIdentifier(event.requested_model) ? { requestedModel: safeIdentifier(event.requested_model) } : {}),
+    ...(safeIdentifier(event.resolved_model) ? { resolvedModel: safeIdentifier(event.resolved_model) } : {}),
+    ...(safeIdentifier(event.provider_family) ? { providerFamily: safeIdentifier(event.provider_family) } : {}),
+    ...(typeof event.fallback_used === "boolean" ? { fallbackUsed: event.fallback_used } : {}),
+    ...(fallbackReason && SAFE_FALLBACK_REASONS.has(fallbackReason) ? { fallbackReason } : {}),
+    ...(attempts !== undefined ? { attempts } : {}),
+    ...(typeof event.latency_ms === "number" && Number.isFinite(event.latency_ms) && event.latency_ms >= 0
+      ? { latencyMs: event.latency_ms }
+      : {}),
+    ...(safeIdentifier(event.runtime_build_id) ? { runtimeBuildId: safeIdentifier(event.runtime_build_id) } : {}),
+    ...(outcome && SAFE_OUTCOMES.has(outcome) ? { outcome } : {}),
+  };
+}
+
+function mergeOneApiRouteMetadata(
+  current: OneApiRouteMetadata,
+  update: OneApiRouteMetadata,
+): OneApiRouteMetadata {
+  return {
+    ...current,
+    ...Object.fromEntries(
+      Object.entries(update).filter(([, value]) => value !== undefined),
+    ),
+  } as OneApiRouteMetadata;
+}
+
+function oneApiLookupConfig(config: unknown): { baseUrl: string; apiKey: string } | undefined {
+  const root = record(config);
+  const models = record(root?.models);
+  const providers = record(models?.providers);
+  const oneapi = record(providers?.oneapi);
+  const baseUrl = nonEmpty(oneapi?.baseUrl);
+  const apiKey = nonEmpty(oneapi?.apiKey);
+  if (!baseUrl || !apiKey) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== "http:" || !parsed.hostname || !LOOPBACK_HOSTS.has(parsed.hostname)) {
+      return undefined;
+    }
+    return { baseUrl: parsed.origin, apiKey };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function lookupOneApiRoutingEvent(
+  config: unknown,
+  requestId: string | undefined,
+): Promise<OneApiRouteMetadata | undefined> {
+  const safeRequestId = safeIdentifier(requestId);
+  const lookup = oneApiLookupConfig(config);
+  if (!safeRequestId || !lookup || typeof fetch !== "function") {
+    return undefined;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ROUTING_LOOKUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(
+      `${lookup.baseUrl}/admin/routing-events/${encodeURIComponent(safeRequestId)}`,
+      {
+        headers: { Authorization: `Bearer ${lookup.apiKey}` },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      return undefined;
+    }
+    const body = await response.text();
+    if (body.length > 128 * 1024) {
+      return undefined;
+    }
+    try {
+      return parseOneApiRoutingEvent(JSON.parse(body));
+    } catch {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function buildOrchestratorRouteRecord(params: {
@@ -186,6 +339,32 @@ export class OrchestratorRouteStore {
     return record;
   }
 
+  enrich(
+    runId: string,
+    callId: string,
+    metadata: OneApiRouteMetadata,
+  ): OrchestratorRouteRecord | undefined {
+    const sessionRecord = [...this.latestBySession.values()].find(
+      (record) => record.runId === runId && record.callId === callId,
+    );
+    const runRecords = this.latestByRun.get(runId);
+    const runRecord = runRecords?.find((record) => record.callId === callId);
+    const current = sessionRecord ?? runRecord;
+    if (!current) {
+      return undefined;
+    }
+    const updated = { ...current, oneapi: mergeOneApiRouteMetadata(current.oneapi, metadata) };
+    const sessionKey = updated.sessionKey ?? `run:${updated.runId}`;
+    this.latestBySession.set(sessionKey, updated);
+    if (runRecords) {
+      this.latestByRun.set(
+        runId,
+        runRecords.map((record) => (record.callId === callId ? updated : record)),
+      );
+    }
+    return updated;
+  }
+
   latest(sessionKey?: string): OrchestratorRouteRecord | undefined {
     if (sessionKey) {
       return this.latestBySession.get(sessionKey);
@@ -219,6 +398,7 @@ export function formatRouteStatus(params: {
     agents?: {
       defaults?: { model?: unknown };
       list?: Array<{ id?: string; model?: unknown }>;
+      entries?: Record<string, { model?: unknown }>;
     };
   };
   const modelValue = (value: unknown): string | undefined => {
@@ -233,7 +413,10 @@ export function formatRouteStatus(params: {
   };
   const global = modelValue(config.agents?.defaults?.model);
   const agent = params.agentId
-    ? modelValue(config.agents?.list?.find((entry) => entry.id === params.agentId)?.model)
+    ? modelValue(
+        config.agents?.list?.find((entry) => entry.id === params.agentId)?.model ??
+          config.agents?.entries?.[params.agentId]?.model,
+      )
     : undefined;
   const sessionOverride = params.session?.model
     ? `${params.session.modelProvider ? `${params.session.modelProvider}/` : ""}${params.session.model}`
