@@ -1,0 +1,13 @@
+{
+  "id": "orchestrator-route-visibility",
+  "name": "Orchestrator Route Visibility",
+  "description": "Shows safe OpenClaw and OneAPI model-route diagnostics without changing routing.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

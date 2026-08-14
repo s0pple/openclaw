@@ -1,4 +1,5 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { truncateUtf16Safe } from "../../../utils.js";
 /**
  * Emits diagnostic model-call events around embedded-agent stream functions.
  */
@@ -42,6 +43,9 @@ type ModelCallDiagnosticContext = {
   sessionId?: string;
   provider: string;
   model: string;
+  requestedModelId?: string | null;
+  fallbackActive?: boolean;
+  fallbackReason?: string | null;
   api?: string;
   transport?: string;
   contextTokenBudget?: number;
@@ -56,7 +60,11 @@ type ModelCallDiagnosticContext = {
 type ModelCallEventBase = Omit<
   Extract<DiagnosticEventInput, { type: "model.call.started" }>,
   "type"
->;
+> & {
+  requestedModel?: string;
+  fallbackActive?: boolean;
+  fallbackReason?: string;
+};
 type ModelCallErrorFields = Pick<
   Extract<DiagnosticEventInput, { type: "model.call.error" }>,
   "errorCategory" | "failureKind" | "memory" | "upstreamRequestIdHash"
@@ -65,6 +73,9 @@ type ModelCallEndedHookFields = Pick<
   PluginHookModelCallEndedEvent,
   | "durationMs"
   | "outcome"
+  | "responseStatus"
+  | "responseModel"
+  | "providerResponseHeaders"
   | "errorCategory"
   | "requestPayloadBytes"
   | "responseStreamBytes"
@@ -78,6 +89,9 @@ type ModelCallSizeTimingFields = Pick<
 >;
 type ModelCallObservationState = {
   requestPayloadBytes?: number;
+  responseStatus?: number;
+  responseModel?: string;
+  providerResponseHeaders?: Readonly<Record<string, string>>;
   responseStreamBytes: number;
   timeToFirstByteMs?: number;
   modelContent?: DiagnosticModelCallContent;
@@ -91,7 +105,53 @@ const MODEL_CALL_STREAM_PROGRESS_INTERVAL_MS = 30_000;
 const MODEL_CALL_STREAM_PROGRESS_REASON = "model_call:stream_progress";
 const MODEL_CALL_STREAM_RETURN_TIMEOUT_MS = 1000;
 const TRACEPARENT_HEADER_NAME = "traceparent";
+const SAFE_PROVIDER_RESPONSE_HEADER_NAMES = new Set([
+  "x-oneapi-request-id",
+  "x-oneapi-correlation-id",
+  "x-oneapi-routing-schema-version",
+  "x-oneapi-requested-model",
+  "x-oneapi-resolved-model",
+  "x-oneapi-provider-family",
+  "x-oneapi-fallback-used",
+  "x-oneapi-fallback-reason",
+  "x-oneapi-attempts",
+  "x-oneapi-latency-ms",
+  "x-oneapi-runtime-build-id",
+  "x-oneapi-outcome",
+]);
+const SAFE_PROVIDER_RESPONSE_HEADER_VALUE_MAX_LENGTH = 256;
 type ModelCallStreamOptions = Parameters<StreamFn>[2];
+
+function safeProviderResponseHeaders(
+  headers: Record<string, string> | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (!headers || typeof headers !== "object") {
+    return undefined;
+  }
+  const safe: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const normalizedName = name.trim().toLowerCase();
+    if (!SAFE_PROVIDER_RESPONSE_HEADER_NAMES.has(normalizedName)) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      continue;
+    }
+    const normalizedValue = value
+      .replaceAll("\r", "")
+      .replaceAll("\n", "")
+      .replaceAll("\0", "")
+      .trim();
+    if (!normalizedValue) {
+      continue;
+    }
+    safe[normalizedName] = truncateUtf16Safe(
+      normalizedValue,
+      SAFE_PROVIDER_RESPONSE_HEADER_VALUE_MAX_LENGTH,
+    );
+  }
+  return Object.keys(safe).length > 0 ? Object.freeze(safe) : undefined;
+}
 
 function utf8JsonByteLength(value: unknown): number | undefined {
   try {
@@ -176,6 +236,12 @@ function observeOutputMessageContent(state: ModelCallObservationState, chunk: un
   const message =
     chunk.type === "done" ? chunk.message : chunk.type === "error" ? chunk.error : undefined;
   if (message !== undefined) {
+    if (isRecord(message) && typeof message.responseModel === "string") {
+      const responseModel = message.responseModel.trim();
+      if (responseModel) {
+        state.responseModel = responseModel;
+      }
+    }
     state.outputMessages = [cloneDiagnosticContentValue(message)];
   }
 }
@@ -186,6 +252,12 @@ function observeResultMessageContent(
   result: unknown,
 ): void {
   state.timeToFirstByteMs ??= Math.max(0, Date.now() - startedAt);
+  if (isRecord(result) && typeof result.responseModel === "string") {
+    const responseModel = result.responseModel.trim();
+    if (responseModel) {
+      state.responseModel = responseModel;
+    }
+  }
   if (state.contentCapture?.outputMessages && state.outputMessages === undefined) {
     state.outputMessages = [cloneDiagnosticContentValue(result)];
   }
@@ -293,6 +365,9 @@ function baseModelCallEvent(
     ...(ctx.sessionId && { sessionId: ctx.sessionId }),
     provider: ctx.provider,
     model: ctx.model,
+    ...(ctx.requestedModelId ? { requestedModel: ctx.requestedModelId } : {}),
+    ...(ctx.fallbackActive !== undefined ? { fallbackActive: ctx.fallbackActive } : {}),
+    ...(ctx.fallbackReason ? { fallbackReason: ctx.fallbackReason } : {}),
     ...(ctx.api && { api: ctx.api }),
     ...(ctx.transport && { transport: ctx.transport }),
     ...(ctx.contextTokenBudget ? { contextTokenBudget: ctx.contextTokenBudget } : {}),
@@ -351,6 +426,9 @@ function modelCallHookEventBase(eventBase: ModelCallEventBase): PluginHookModelC
     ...(eventBase.sessionId ? { sessionId: eventBase.sessionId } : {}),
     provider: eventBase.provider,
     model: eventBase.model,
+    ...(eventBase.requestedModel ? { requestedModel: eventBase.requestedModel } : {}),
+    ...(eventBase.fallbackActive !== undefined ? { fallbackActive: eventBase.fallbackActive } : {}),
+    ...(eventBase.fallbackReason ? { fallbackReason: eventBase.fallbackReason } : {}),
     ...(eventBase.api ? { api: eventBase.api } : {}),
     ...(eventBase.transport ? { transport: eventBase.transport } : {}),
     ...(eventBase.contextTokenBudget ? { contextTokenBudget: eventBase.contextTokenBudget } : {}),
@@ -450,6 +528,11 @@ function emitModelCallCompleted(
   dispatchModelCallEndedHook(eventBase, {
     durationMs,
     outcome: "completed",
+    ...(state.responseStatus !== undefined ? { responseStatus: state.responseStatus } : {}),
+    ...(state.responseModel ? { responseModel: state.responseModel } : {}),
+    ...(state.providerResponseHeaders
+      ? { providerResponseHeaders: state.providerResponseHeaders }
+      : {}),
     ...sizeTimingFields,
   });
 }
@@ -479,6 +562,11 @@ function emitModelCallError(
   dispatchModelCallEndedHook(eventBase, {
     durationMs,
     outcome: "error",
+    ...(state.responseStatus !== undefined ? { responseStatus: state.responseStatus } : {}),
+    ...(state.responseModel ? { responseModel: state.responseModel } : {}),
+    ...(state.providerResponseHeaders
+      ? { providerResponseHeaders: state.providerResponseHeaders }
+      : {}),
     ...sizeTimingFields,
     ...fields,
   });
@@ -491,6 +579,7 @@ function withDiagnosticTraceparentHeader(
 ): ModelCallStreamOptions {
   const traceparent = formatDiagnosticTraceparent(trace);
   const originalOnPayload = options?.onPayload;
+  const originalOnResponse = options?.onResponse;
   const onPayload: NonNullable<ModelCallStreamOptions>["onPayload"] = (payload, model) => {
     if (!originalOnPayload) {
       assignRequestPayloadBytes(state, payload);
@@ -507,10 +596,17 @@ function withDiagnosticTraceparentHeader(
     return result;
   };
 
+  const onResponse: NonNullable<ModelCallStreamOptions>["onResponse"] = (response, model) => {
+    state.responseStatus = response.status;
+    state.providerResponseHeaders = safeProviderResponseHeaders(response.headers);
+    return originalOnResponse?.(response, model);
+  };
+
   if (!traceparent) {
     return {
       ...options,
       onPayload,
+      onResponse,
     };
   }
 
@@ -526,6 +622,7 @@ function withDiagnosticTraceparentHeader(
     ...options,
     headers,
     onPayload,
+    onResponse,
   };
 }
 

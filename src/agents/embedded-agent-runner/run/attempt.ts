@@ -3147,6 +3147,9 @@ export async function runEmbeddedAttempt(
           ...(params.sessionId && { sessionId: params.sessionId }),
           provider: params.provider,
           model: params.modelId,
+          requestedModelId: params.requestedModelId,
+          fallbackActive: params.fallbackActive,
+          fallbackReason: params.fallbackReason,
           api: params.model.api,
           transport: effectiveAgentTransport,
           ...(params.contextWindowInfo?.tokens
