@@ -5,6 +5,8 @@ export type {
   PluginHookAgentTrigger,
   PluginHookBeforeToolCallEvent,
   PluginHookBeforeToolCallResult,
+  PluginHookModelCallEndedEvent,
+  PluginHookModelCallStartedEvent,
   PluginHookSkillArtifact,
   PluginHookSkillBundleFile,
   PluginHookSkillBundleSnapshot,

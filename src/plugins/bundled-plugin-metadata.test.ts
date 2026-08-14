@@ -55,6 +55,7 @@ const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
   "ollama",
   "opencode",
   "openshell",
+  "orchestrator-route-visibility",
   "policy",
   "reef",
   "talk-voice",
