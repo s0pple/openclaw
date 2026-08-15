@@ -107,7 +107,7 @@ export type RuntimeGatewayRequestOptions = {
 };
 
 /** Parameters for a trusted plugin to call a configured session-scoped MCP tool. */
-export type RuntimeMcpCallToolParams = {
+type RuntimeMcpCallToolParams = {
   sessionId: string;
   sessionKey?: string;
   workspaceDir: string;
@@ -122,7 +122,7 @@ export type RuntimeMcpCallToolParams = {
 };
 
 /** Trusted, session-scoped MCP access for native plugins. */
-export type PluginRuntimeMcp = {
+type PluginRuntimeMcp = {
   callTool: (params: RuntimeMcpCallToolParams) => Promise<unknown>;
 };
 
