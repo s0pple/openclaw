@@ -1,0 +1,7 @@
+{
+  "id": "deterministic-router",
+  "name": "Deterministic Router",
+  "description": "Keeps explicit /fast Telegram turns local and sends ordinary turns through the OneAPI auto-router.",
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}
