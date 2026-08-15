@@ -36,10 +36,7 @@ export function extractKnowledgeTitle(prompt) {
   // character for the book title.
   for (const match of matches.toReversed()) {
     const title = match[1]?.trim();
-    if (
-      title &&
-      !/^(?:chapter|kapitel|volume|band)(?:\s+\d+)?$/i.test(title)
-    ) {
+    if (title && !/^(?:chapter|kapitel|volume|band)(?:\s+\d+)?$/i.test(title)) {
       return title;
     }
   }
@@ -80,7 +77,8 @@ function parseToolPayload(result) {
   }
   const content = Array.isArray(record.content) ? record.content : [];
   const textBlock = content.find(
-    (entry) => entry && typeof entry === "object" && entry.type === "text" && typeof entry.text === "string",
+    (entry) =>
+      entry && typeof entry === "object" && entry.type === "text" && typeof entry.text === "string",
   );
   if (!textBlock) {
     return undefined;
@@ -94,7 +92,8 @@ function parseToolPayload(result) {
 }
 
 function terminalText(status) {
-  const normalized = typeof status === "string" && status.trim() ? status.trim() : "retrieval_unavailable";
+  const normalized =
+    typeof status === "string" && status.trim() ? status.trim() : "retrieval_unavailable";
   return `OneLibrary returned status: ${normalized}. I cannot answer this book-content question without validated evidence, and I will not use model memory or another source.`;
 }
 
