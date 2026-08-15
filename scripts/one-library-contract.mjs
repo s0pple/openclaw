@@ -2,15 +2,16 @@
 
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import { dirname, basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import os from "node:os";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const BUNDLE_ROOT = resolve(REPO_ROOT, "deploy/one-library");
 const CONTRACT_PATH = join(BUNDLE_ROOT, "contract.json");
-const SECRET_VALUE_PATTERN = /(?:bearer\s+[a-z0-9._-]{16,}|(?:api|gateway|telegram)[_-]?(?:key|token)\s*[:=]\s*["']?[a-z0-9._-]{16,})/i;
+const SECRET_VALUE_PATTERN =
+  /(?:bearer\s+[a-z0-9._-]{16,}|(?:api|gateway|telegram)[_-]?(?:key|token)\s*[:=]\s*["']?[a-z0-9._-]{16,})/i;
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -22,9 +23,13 @@ function resolveDefaultStateDir() {
 
 function resolvePaths(options, contract) {
   const stateDir = resolve(options.stateDir || resolveDefaultStateDir());
-  const configPath = resolve(options.configPath || process.env.OPENCLAW_CONFIG_PATH || join(stateDir, "openclaw.json"));
+  const configPath = resolve(
+    options.configPath || process.env.OPENCLAW_CONFIG_PATH || join(stateDir, "openclaw.json"),
+  );
   const workspaceDir = resolve(options.workspaceDir || join(stateDir, "workspace-router"));
-  const pluginDir = resolve(options.pluginDir || join(stateDir, "local-plugins", contract.plugin_id));
+  const pluginDir = resolve(
+    options.pluginDir || join(stateDir, "local-plugins", contract.plugin_id),
+  );
   return { stateDir, configPath, workspaceDir, pluginDir };
 }
 
@@ -48,7 +53,9 @@ function isPluginPath(value, contract, pluginDir) {
 function buildPatch(config, contract, paths) {
   const mcpServer = config.mcp?.servers?.[contract.mcp_server];
   if (!mcpServer || typeof mcpServer !== "object") {
-    throw new Error(`missing existing mcp.servers.${contract.mcp_server}; deployment does not invent MCP credentials or commands`);
+    throw new Error(
+      `missing existing mcp.servers.${contract.mcp_server}; deployment does not invent MCP credentials or commands`,
+    );
   }
 
   const existingPluginPaths = Array.isArray(config.plugins?.load?.paths)
@@ -59,7 +66,9 @@ function buildPatch(config, contract, paths) {
   const currentAgent = config.agents?.entries?.[contract.agent_id] ?? {};
   const currentAllow = Array.isArray(currentAgent.tools?.allow) ? currentAgent.tools.allow : [];
   const libraryTools = expectedAgentTools(contract);
-  const nonLibraryTools = currentAllow.filter((tool) => typeof tool === "string" && !tool.startsWith("onelibrary__"));
+  const nonLibraryTools = currentAllow.filter(
+    (tool) => typeof tool === "string" && !tool.startsWith("onelibrary__"),
+  );
   const allow = [...new Set([...nonLibraryTools, ...libraryTools])];
 
   const currentPluginEntry = config.plugins?.entries?.[contract.plugin_id] ?? {};
@@ -119,7 +128,10 @@ function validateContract({ config, contract, pluginDir, workspaceDir }) {
     ? actualAgentAllow.filter((tool) => typeof tool === "string" && tool.startsWith("onelibrary__"))
     : [];
 
-  if (!Array.isArray(actualMcpTools) || JSON.stringify([...actualMcpTools].sort()) !== JSON.stringify(expectedMcpTools)) {
+  if (
+    !Array.isArray(actualMcpTools) ||
+    JSON.stringify([...actualMcpTools].sort()) !== JSON.stringify(expectedMcpTools)
+  ) {
     errors.push(`MCP tool contract is not exactly ${contract.one_library_tools.length} tools`);
   }
   if (!Array.isArray(actualMcpTools) || actualMcpTools.length !== new Set(actualMcpTools).size) {
@@ -128,18 +140,30 @@ function validateContract({ config, contract, pluginDir, workspaceDir }) {
   if (!actualMcpTools?.includes("ask_book")) errors.push("MCP tool contract is missing ask_book");
 
   if (JSON.stringify([...actualAgentLibrary].sort()) !== JSON.stringify(expectedAgent)) {
-    errors.push(`router allowlist does not expose exactly ${expectedAgent.length} OneLibrary tools`);
+    errors.push(
+      `router allowlist does not expose exactly ${expectedAgent.length} OneLibrary tools`,
+    );
   }
   if (!actualAgentLibrary.includes("onelibrary__ask_book")) {
     errors.push("router allowlist is missing onelibrary__ask_book");
   }
 
-  const forbiddenAgentEntries = new Set(["shell", "exec", "process", "write", "edit", "apply_patch", "browser"]);
+  const forbiddenAgentEntries = new Set([
+    "shell",
+    "exec",
+    "process",
+    "write",
+    "edit",
+    "apply_patch",
+    "browser",
+  ]);
   const introducedForbidden = Array.isArray(actualAgentAllow)
     ? actualAgentAllow.filter((tool) => forbiddenAgentEntries.has(tool))
     : [];
   if (introducedForbidden.length > 0) {
-    errors.push(`router allowlist exposes forbidden capability names: ${introducedForbidden.join(", ")}`);
+    errors.push(
+      `router allowlist exposes forbidden capability names: ${introducedForbidden.join(", ")}`,
+    );
   }
 
   const loadedPaths = Array.isArray(config.plugins?.load?.paths) ? config.plugins.load.paths : [];
@@ -171,7 +195,8 @@ function validateContract({ config, contract, pluginDir, workspaceDir }) {
   if (existsSync(pluginFiles.index)) {
     const source = readFileSync(pluginFiles.index, "utf8");
     for (const marker of contract.required_guard_markers) {
-      if (!source.includes(marker)) errors.push(`runtime Knowledge Guard marker missing: ${marker}`);
+      if (!source.includes(marker))
+        errors.push(`runtime Knowledge Guard marker missing: ${marker}`);
     }
   }
 
@@ -180,14 +205,20 @@ function validateContract({ config, contract, pluginDir, workspaceDir }) {
     errors.push("router instruction file is missing");
   } else {
     const instructions = readFileSync(instructionPath, "utf8");
-    for (const marker of ["onelibrary__ask_book", "Do not answer those questions from model memory", "terminal"]) {
-      if (!instructions.includes(marker)) errors.push(`router instruction marker missing: ${marker}`);
+    for (const marker of [
+      "onelibrary__ask_book",
+      "Do not answer those questions from model memory",
+      "terminal",
+    ]) {
+      if (!instructions.includes(marker))
+        errors.push(`router instruction marker missing: ${marker}`);
     }
   }
 
   for (const path of collectBundleFiles(contract)) {
     if (!existsSync(path)) errors.push(`portable deployment artifact missing: ${path}`);
-    else if (SECRET_VALUE_PATTERN.test(readFileSync(path, "utf8"))) errors.push(`secret-like value found in ${path}`);
+    else if (SECRET_VALUE_PATTERN.test(readFileSync(path, "utf8")))
+      errors.push(`secret-like value found in ${path}`);
   }
 
   return {
@@ -198,7 +229,9 @@ function validateContract({ config, contract, pluginDir, workspaceDir }) {
       mcp_tool_count: Array.isArray(actualMcpTools) ? actualMcpTools.length : 0,
       ask_book: Array.isArray(actualMcpTools) && actualMcpTools.includes("ask_book"),
       router_tool_count: actualAgentLibrary.length,
-      deterministic_router_loaded: loadedPaths.some((value) => isPluginPath(value, contract, pluginDir)),
+      deterministic_router_loaded: loadedPaths.some((value) =>
+        isPluginPath(value, contract, pluginDir),
+      ),
       forbidden_one_library_write_tools: 0,
     },
   };
@@ -227,7 +260,9 @@ function runConfigPatch({ patch, configPath, stateDir, dryRun, openclawBin }) {
     },
   );
   if (result.status !== 0) {
-    throw new Error(`openclaw config patch failed: ${redact(result.stderr || result.stdout)}`.trim());
+    throw new Error(
+      `openclaw config patch failed: ${redact(result.stderr || result.stdout)}`.trim(),
+    );
   }
 }
 
@@ -260,9 +295,17 @@ function runCli() {
   const config = existsSync(paths.configPath) ? readJson(paths.configPath) : {};
 
   if (command === "validate") {
-    const result = validateContract({ config, contract, pluginDir: paths.pluginDir, workspaceDir: paths.workspaceDir });
+    const result = validateContract({
+      config,
+      contract,
+      pluginDir: paths.pluginDir,
+      workspaceDir: paths.workspaceDir,
+    });
     if (options.json) console.log(JSON.stringify(result, null, 2));
-    else console.log(`${result.ok ? "PASS" : "FAIL"} OneLibrary OpenClaw contract: ${JSON.stringify(result.summary)}`);
+    else
+      console.log(
+        `${result.ok ? "PASS" : "FAIL"} OneLibrary OpenClaw contract: ${JSON.stringify(result.summary)}`,
+      );
     if (!result.ok) {
       for (const error of result.errors) console.error(`- ${error}`);
       process.exitCode = 1;
@@ -270,8 +313,12 @@ function runCli() {
     return;
   }
 
-  if (command !== "apply") throw new Error(`unsupported command: ${command}; use validate or apply`);
-  if (!existsSync(paths.configPath)) throw new Error(`config does not exist: ${paths.configPath}; deployment does not invent MCP configuration`);
+  if (command !== "apply")
+    throw new Error(`unsupported command: ${command}; use validate or apply`);
+  if (!existsSync(paths.configPath))
+    throw new Error(
+      `config does not exist: ${paths.configPath}; deployment does not invent MCP configuration`,
+    );
   const patch = buildPatch(config, contract, paths);
   const openclawBin = options.openclawBin || process.env.OPENCLAW_BIN || "openclaw";
   if (!options.dry_run) {
@@ -282,19 +329,61 @@ function runCli() {
     cpSync(sourcePluginDir, paths.pluginDir, { recursive: true });
     mkdirSync(paths.workspaceDir, { recursive: true });
     cpSync(sourceInstruction, join(paths.workspaceDir, "AGENTS.md"));
-    runConfigPatch({ patch, configPath: paths.configPath, stateDir: paths.stateDir, dryRun: true, openclawBin });
-    runConfigPatch({ patch, configPath: paths.configPath, stateDir: paths.stateDir, dryRun: false, openclawBin });
+    runConfigPatch({
+      patch,
+      configPath: paths.configPath,
+      stateDir: paths.stateDir,
+      dryRun: true,
+      openclawBin,
+    });
+    runConfigPatch({
+      patch,
+      configPath: paths.configPath,
+      stateDir: paths.stateDir,
+      dryRun: false,
+      openclawBin,
+    });
   } else if (existsSync(paths.pluginDir)) {
-    runConfigPatch({ patch, configPath: paths.configPath, stateDir: paths.stateDir, dryRun: true, openclawBin });
+    runConfigPatch({
+      patch,
+      configPath: paths.configPath,
+      stateDir: paths.stateDir,
+      dryRun: true,
+      openclawBin,
+    });
   }
   const appliedConfig = options.dry_run ? config : readJson(paths.configPath);
-  const result = validateContract({ config: options.dry_run ? { ...config, ...patch } : appliedConfig, contract, pluginDir: paths.pluginDir, workspaceDir: paths.workspaceDir });
+  const result = validateContract({
+    config: options.dry_run ? { ...config, ...patch } : appliedConfig,
+    contract,
+    pluginDir: paths.pluginDir,
+    workspaceDir: paths.workspaceDir,
+  });
   if (!result.ok && !options.dry_run) {
     for (const error of result.errors) console.error(`- ${error}`);
     throw new Error("applied OneLibrary contract did not validate");
   }
-  if (options.json) console.log(JSON.stringify({ ...result, dry_run: Boolean(options.dry_run), paths: { state_dir: paths.stateDir, config: paths.configPath, workspace: paths.workspaceDir, plugin: paths.pluginDir } }, null, 2));
-  else console.log(`${options.dry_run ? "DRY-RUN" : "PASS"} OneLibrary contract applied/validated: ${JSON.stringify(result.summary)}`);
+  if (options.json)
+    console.log(
+      JSON.stringify(
+        {
+          ...result,
+          dry_run: Boolean(options.dry_run),
+          paths: {
+            state_dir: paths.stateDir,
+            config: paths.configPath,
+            workspace: paths.workspaceDir,
+            plugin: paths.pluginDir,
+          },
+        },
+        null,
+        2,
+      ),
+    );
+  else
+    console.log(
+      `${options.dry_run ? "DRY-RUN" : "PASS"} OneLibrary contract applied/validated: ${JSON.stringify(result.summary)}`,
+    );
 }
 
 export { buildPatch, expectedAgentTools, readJson, resolvePaths, validateContract };

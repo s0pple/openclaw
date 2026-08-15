@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import os from "node:os";
+import { join } from "node:path";
 import { buildPatch, readJson, validateContract } from "./one-library-contract.mjs";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
@@ -31,7 +31,12 @@ try {
       entries: {
         [contract.agent_id]: {
           workspace: workspaceDir,
-          tools: { allow: ["sessions_spawn", ...contract.one_library_tools.map((tool) => `onelibrary__${tool}`)] },
+          tools: {
+            allow: [
+              "sessions_spawn",
+              ...contract.one_library_tools.map((tool) => `onelibrary__${tool}`),
+            ],
+          },
         },
       },
     },
@@ -46,12 +51,24 @@ try {
 
   const patch = buildPatch(config, contract, { pluginDir, workspaceDir });
   assert.deepEqual(patch.mcp.servers.onelibrary.toolFilter.include, contract.one_library_tools);
-  assert.equal(patch.agents.entries[contract.agent_id].tools.allow.includes("sessions_spawn"), true);
-  assert.equal(patch.agents.entries[contract.agent_id].tools.allow.filter((tool) => tool.startsWith("onelibrary__")).length, 12);
-  assert.deepEqual(patch.plugins.load.paths, ["/opt/openclaw/extensions/planning-knowledge", pluginDir]);
+  assert.equal(
+    patch.agents.entries[contract.agent_id].tools.allow.includes("sessions_spawn"),
+    true,
+  );
+  assert.equal(
+    patch.agents.entries[contract.agent_id].tools.allow.filter((tool) =>
+      tool.startsWith("onelibrary__"),
+    ).length,
+    12,
+  );
+  assert.deepEqual(patch.plugins.load.paths, [
+    "/opt/openclaw/extensions/planning-knowledge",
+    pluginDir,
+  ]);
 
   const missingAskBook = structuredClone(config);
-  missingAskBook.mcp.servers.onelibrary.toolFilter.include = missingAskBook.mcp.servers.onelibrary.toolFilter.include.filter((tool) => tool !== "ask_book");
+  missingAskBook.mcp.servers.onelibrary.toolFilter.include =
+    missingAskBook.mcp.servers.onelibrary.toolFilter.include.filter((tool) => tool !== "ask_book");
   const invalid = validateContract({ config: missingAskBook, contract, pluginDir, workspaceDir });
   assert.equal(invalid.ok, false);
   assert.match(invalid.errors.join("\n"), /ask_book/);
