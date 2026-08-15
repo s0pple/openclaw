@@ -1,0 +1,35 @@
+{
+  "schema_version": "one-library-openclaw-contract-v1",
+  "plugin_id": "deterministic-router",
+  "plugin_directory": "deterministic-router",
+  "mcp_server": "onelibrary",
+  "agent_id": "telegram-router",
+  "workspace_instruction": "workspace-router/AGENTS.md",
+  "one_library_tools": [
+    "ask_book",
+    "get_backup_status",
+    "get_capture_event_summary",
+    "get_capture_events_by_item",
+    "get_current_progress",
+    "get_recent_activity",
+    "get_recent_capture_events",
+    "list_missing_baselines",
+    "list_sources",
+    "run_safe_readonly_sql",
+    "search_capture_events",
+    "search_items"
+  ],
+  "forbidden_capabilities": [
+    "shell",
+    "filesystem_write",
+    "arbitrary_import",
+    "arbitrary_network",
+    "database_write",
+    "progress_confirmation"
+  ],
+  "required_guard_markers": [
+    "before_agent_reply",
+    "toolName: \"ask_book\"",
+    "knowledge-tool-enforced"
+  ]
+}
