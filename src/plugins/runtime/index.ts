@@ -1,5 +1,6 @@
-import { resolveSandboxWorkspaceAuthority } from "../../agents/sandbox/workspace-authority.js";
 // Plugin runtime entrypoint assembles runtime helpers available to activated plugins.
+import { getOrCreateSessionMcpRuntime } from "../../agents/agent-bundle-mcp-manager-api.js";
+import { resolveSandboxWorkspaceAuthority } from "../../agents/sandbox/workspace-authority.js";
 import { getRuntimeConfig } from "../../config/config.js";
 import { resolveStateDir } from "../../config/paths.js";
 import {
@@ -56,6 +57,33 @@ function createRuntimeGateway(): PluginRuntime["gateway"] {
     request: async (method, params, options) => {
       const runtime = await loadGatewayPluginRuntime();
       return runtime.dispatchTrustedPluginGatewayMethod(method, params, options);
+    },
+  };
+}
+
+function createRuntimeMcp(): PluginRuntime["mcp"] {
+  return {
+    callTool: async (params) => {
+      const sessionId = params.sessionId.trim();
+      const workspaceDir = params.workspaceDir.trim();
+      const serverName = params.serverName.trim();
+      const toolName = params.toolName.trim();
+      if (!sessionId || !workspaceDir || !serverName || !toolName) {
+        throw new Error("runtime.mcp.callTool requires session, workspace, server, and tool");
+      }
+      const runtime = await getOrCreateSessionMcpRuntime({
+        sessionId,
+        ...(params.sessionKey?.trim() ? { sessionKey: params.sessionKey.trim() } : {}),
+        workspaceDir,
+        ...(params.agentDir?.trim() ? { agentDir: params.agentDir.trim() } : {}),
+        cfg: getRuntimeConfig(),
+        ...(params.requesterSenderId?.trim()
+          ? { requesterSenderId: params.requesterSenderId.trim() }
+          : {}),
+        ...(params.agentAccountId?.trim() ? { agentAccountId: params.agentAccountId.trim() } : {}),
+        ...(params.messageChannel?.trim() ? { messageChannel: params.messageChannel.trim() } : {}),
+      });
+      return await runtime.callTool(serverName, toolName, params.input ?? {});
     },
   };
 }
@@ -266,6 +294,7 @@ export function createPluginRuntime(_options: CreatePluginRuntimeOptions = {}): 
     // Sourced from the shared OpenClaw version resolver (#52899) so plugins
     // always see the same version the CLI reports, avoiding API-version drift.
     version: VERSION,
+    mcp: createRuntimeMcp(),
     gateway: createRuntimeGateway(),
     config: createRuntimeConfig(),
     agent,

@@ -106,8 +106,29 @@ export type RuntimeGatewayRequestOptions = {
   scopes?: OperatorScope[];
 };
 
+/** Parameters for a trusted plugin to call a configured session-scoped MCP tool. */
+type RuntimeMcpCallToolParams = {
+  sessionId: string;
+  sessionKey?: string;
+  workspaceDir: string;
+  agentDir?: string;
+  agentId?: string;
+  serverName: string;
+  toolName: string;
+  input?: unknown;
+  requesterSenderId?: string;
+  agentAccountId?: string;
+  messageChannel?: string;
+};
+
+/** Trusted, session-scoped MCP access for native plugins. */
+type PluginRuntimeMcp = {
+  callTool: (params: RuntimeMcpCallToolParams) => Promise<unknown>;
+};
+
 /** Trusted in-process runtime surface injected into native plugins. */
 export type PluginRuntime = PluginRuntimeCore & {
+  mcp: PluginRuntimeMcp;
   gateway: {
     /** Whether this process owns an active Gateway request context. */
     isAvailable: () => Promise<boolean>;
